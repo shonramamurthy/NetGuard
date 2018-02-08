@@ -14,7 +14,7 @@
     You should have received a copy of the GNU General Public License
     along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2015-2017 by Marcel Bokhorst (M66B)
+    Copyright 2015-2018 by Marcel Bokhorst (M66B)
 */
 
 #include "netguard.h"
@@ -98,6 +98,7 @@ JNIEXPORT jlong JNICALL
 Java_eu_faircode_netguard_ServiceSinkhole_jni_1init(
         JNIEnv *env, jobject instance, jint sdk) {
     struct context *ctx = calloc(1, sizeof(struct context));
+    ctx->sdk = sdk;
 
     loglevel = ANDROID_LOG_WARN;
 
@@ -408,7 +409,7 @@ void report_error(const struct arguments *args, jint error, const char *fmt, ...
 static jmethodID midProtect = NULL;
 
 int protect_socket(const struct arguments *args, int socket) {
-    if (args->sdk >= 21)
+    if (args->ctx->sdk >= 21)
         return 0;
 
     jclass cls = (*args->env)->GetObjectClass(args->env, args->instance);

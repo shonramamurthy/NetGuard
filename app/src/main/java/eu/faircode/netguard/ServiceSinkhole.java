@@ -16,7 +16,7 @@ package eu.faircode.netguard;
     You should have received a copy of the GNU General Public License
     along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2015-2017 by Marcel Bokhorst (M66B)
+    Copyright 2015-2018 by Marcel Bokhorst (M66B)
 */
 
 import android.annotation.TargetApi;
@@ -84,6 +84,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.math.BigInteger;
 import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.InterfaceAddress;
@@ -1577,11 +1578,11 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
             int version = cursor.getInt(colVersion);
             int protocol = cursor.getInt(colProtocol);
             String daddr = cursor.getString(colDAddr);
-            String dresource = cursor.getString(colResource);
+            String dresource = (cursor.isNull(colResource) ? null : cursor.getString(colResource));
             int dport = cursor.getInt(colDPort);
             boolean block = (cursor.getInt(colBlock) > 0);
-            long time = cursor.getLong(colTime);
-            long ttl = cursor.getLong(colTTL);
+            long time = (cursor.isNull(colTime) ? new Date().getTime() : cursor.getLong(colTime));
+            long ttl = (cursor.isNull(colTTL) ? 7 * 24 * 3600 * 1000L : cursor.getLong(colTTL));
 
             if (isLockedDown(last_metered)) {
                 String[] pkg = getPackageManager().getPackagesForUid(uid);
@@ -1605,14 +1606,20 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
                     mapUidIPFilters.put(key, new HashMap());
 
                 try {
-                    if (dname != null)
-                        Log.i(TAG, "Set filter uid=" + uid + " " + daddr + " " + dresource + "/" + dport + "=" + block);
                     String name = (dresource == null ? daddr : dresource);
                     if (Util.isNumericAddress(name)) {
                         InetAddress iname = InetAddress.getByName(name);
+                        if (version == 4 && !(iname instanceof Inet4Address))
+                            continue;
+                        if (version == 6 && !(iname instanceof Inet6Address))
+                            continue;
+
+                        //if (dname != null)
+                        Log.i(TAG, "Set filter uid=" + uid + " " + daddr + " " + dresource + "/" + dport + "=" + block);
+
                         boolean exists = mapUidIPFilters.get(key).containsKey(iname);
                         if (!exists || !mapUidIPFilters.get(key).get(iname).isBlocked()) {
-                            IPRule rule = new IPRule(block, time + ttl);
+                            IPRule rule = new IPRule(name + "/" + iname, block, time + ttl);
                             mapUidIPFilters.get(key).put(iname, rule);
                             if (exists)
                                 Log.w(TAG, "Address conflict uid=" + uid + " " + daddr + " " + dresource + "/" + dport);
@@ -1856,11 +1863,12 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
                         if (map != null && map.containsKey(iaddr)) {
                             IPRule rule = map.get(iaddr);
                             if (rule.isExpired())
-                                Log.i(TAG, "DNS expired " + packet);
+                                Log.i(TAG, "DNS expired " + packet + " rule " + rule);
                             else {
                                 filtered = true;
                                 packet.allowed = !rule.isBlocked();
-                                Log.i(TAG, "Filtering " + packet);
+                                Log.i(TAG, "Filtering " + packet +
+                                        " allowed=" + packet.allowed + " rule " + rule);
                             }
                         }
                     } catch (UnknownHostException ex) {
@@ -1916,39 +1924,48 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
             executor.submit(new Runnable() {
                 @Override
                 public void run() {
-                    SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(ServiceSinkhole.this);
-                    int delay;
-                    try {
-                        delay = Integer.parseInt(prefs.getString("screen_delay", "0"));
-                    } catch (NumberFormatException ignored) {
-                        delay = 0;
-                    }
-                    boolean interactive = Intent.ACTION_SCREEN_ON.equals(intent.getAction());
-
                     AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
                     Intent i = new Intent(ACTION_SCREEN_OFF_DELAYED);
                     i.setPackage(context.getPackageName());
                     PendingIntent pi = PendingIntent.getBroadcast(context, 0, i, PendingIntent.FLAG_UPDATE_CURRENT);
                     am.cancel(pi);
 
-                    if (interactive || delay == 0) {
-                        last_interactive = interactive;
-                        reload("interactive state changed", ServiceSinkhole.this, true);
-                    } else {
-                        if (ACTION_SCREEN_OFF_DELAYED.equals(intent.getAction())) {
+                    try {
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(ServiceSinkhole.this);
+                        int delay;
+                        try {
+                            delay = Integer.parseInt(prefs.getString("screen_delay", "0"));
+                        } catch (NumberFormatException ignored) {
+                            delay = 0;
+                        }
+                        boolean interactive = Intent.ACTION_SCREEN_ON.equals(intent.getAction());
+
+                        if (interactive || delay == 0) {
                             last_interactive = interactive;
                             reload("interactive state changed", ServiceSinkhole.this, true);
                         } else {
-                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M)
-                                am.set(AlarmManager.RTC_WAKEUP, new Date().getTime() + delay * 60 * 1000L, pi);
-                            else
-                                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, new Date().getTime() + delay * 60 * 1000L, pi);
+                            if (ACTION_SCREEN_OFF_DELAYED.equals(intent.getAction())) {
+                                last_interactive = interactive;
+                                reload("interactive state changed", ServiceSinkhole.this, true);
+                            } else {
+                                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M)
+                                    am.set(AlarmManager.RTC_WAKEUP, new Date().getTime() + delay * 60 * 1000L, pi);
+                                else
+                                    am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, new Date().getTime() + delay * 60 * 1000L, pi);
+                            }
                         }
-                    }
 
-                    // Start/stop stats
-                    statsHandler.sendEmptyMessage(
-                            Util.isInteractive(ServiceSinkhole.this) && !powersaving ? MSG_STATS_START : MSG_STATS_STOP);
+                        // Start/stop stats
+                        statsHandler.sendEmptyMessage(
+                                Util.isInteractive(ServiceSinkhole.this) && !powersaving ? MSG_STATS_START : MSG_STATS_STOP);
+                    } catch (Throwable ex) {
+                        Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex));
+
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M)
+                            am.set(AlarmManager.RTC_WAKEUP, new Date().getTime() + 15 * 1000L, pi);
+                        else
+                            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, new Date().getTime() + 15 * 1000L, pi);
+                    }
                 }
             });
         }
@@ -3041,10 +3058,12 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
     }
 
     private class IPRule {
+        private String name;
         private boolean block;
         private long expires;
 
-        public IPRule(boolean block, long expires) {
+        public IPRule(String name, boolean block, long expires) {
+            this.name = name;
             this.block = block;
             this.expires = expires;
         }
@@ -3065,6 +3084,11 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
         public boolean equals(Object obj) {
             IPRule other = (IPRule) obj;
             return (this.block == other.block && this.expires == other.expires);
+        }
+
+        @Override
+        public String toString() {
+            return this.name;
         }
     }
 

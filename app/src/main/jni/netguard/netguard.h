@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
@@ -57,7 +58,7 @@
 #define TCP_KEEP_TIMEOUT 300 // seconds
 // https://en.wikipedia.org/wiki/Maximum_segment_lifetime
 
-#define SESSION_MAX 384 // number
+#define SESSION_MAX 255 // number
 #define SESSION_LIMIT 30 // percent
 
 #define UID_MAX_AGE 30000 // milliseconds
@@ -72,14 +73,13 @@ struct context {
     pthread_mutex_t lock;
     int pipefds[2];
     int stopping;
-    int tun;
+    int sdk;
     struct ng_session *ng_session;
 };
 
 struct arguments {
     JNIEnv *env;
     jobject instance;
-    int sdk;
     int tun;
     jboolean fwd53;
     jint rcode;

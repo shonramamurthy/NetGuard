@@ -16,26 +16,24 @@ package eu.faircode.netguard;
     You should have received a copy of the GNU General Public License
     along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2015-2017 by Marcel Bokhorst (M66B)
+    Copyright 2015-2018 by Marcel Bokhorst (M66B)
 */
 
 import android.annotation.TargetApi;
-import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.TypedArray;
 import android.database.Cursor;
-import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
-import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
-import android.os.Handler;
 import android.preference.PreferenceManager;
 import android.support.v4.app.NotificationManagerCompat;
 import android.support.v4.content.ContextCompat;
@@ -69,18 +67,18 @@ import android.widget.ListView;
 import android.widget.PopupMenu;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
-import android.widget.Toast;
+
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.request.RequestOptions;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> implements Filterable {
     private static final String TAG = "NetGuard.Adapter";
 
-    private Activity context;
+    private View anchor;
     private LayoutInflater inflater;
     private RecyclerView rv;
     private int colorText;
@@ -94,8 +92,6 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
     private boolean live = true;
     private List<Rule> listAll = new ArrayList<>();
     private List<Rule> listFiltered = new ArrayList<>();
-
-    private ExecutorService executor = Executors.newCachedThreadPool();
 
     public static class ViewHolder extends RecyclerView.ViewHolder {
         public View view;
@@ -152,8 +148,6 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
         public ListView lvAccess;
         public ImageButton btnClearAccess;
         public CheckBox cbNotify;
-
-        public IconLoader iconLoader = null;
 
         public ViewHolder(View itemView) {
             super(itemView);
@@ -240,10 +234,10 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
         }
     }
 
-    public AdapterRule(Activity context) {
+    public AdapterRule(Context context, View anchor) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
 
-        this.context = context;
+        this.anchor = anchor;
         this.inflater = LayoutInflater.from(context);
 
         if (prefs.getBoolean("dark_theme", false))
@@ -317,6 +311,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
 
     @Override
     public void onBindViewHolder(final ViewHolder holder, int position) {
+        final Context context = holder.itemView.getContext();
         final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
 
         // Get rule
@@ -341,8 +336,12 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
         if (rule.icon <= 0)
             holder.ivIcon.setImageResource(android.R.drawable.sym_def_app_icon);
         else {
-            holder.iconLoader = new IconLoader(holder, rule);
-            executor.submit(holder.iconLoader);
+            Uri uri = Uri.parse("android.resource://" + rule.packageName + "/" + rule.icon);
+            GlideApp.with(holder.itemView.getContext())
+                    .applyDefaultRequestOptions(new RequestOptions().format(DecodeFormat.PREFER_RGB_565))
+                    .load(uri)
+                    .override(iconSize, iconSize)
+                    .into(holder.ivIcon);
         }
 
         // Show application label
@@ -386,7 +385,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
                 rule.wifi_blocked = isChecked;
-                updateRule(rule, true, listAll);
+                updateRule(context, rule, true, listAll);
             }
         });
 
@@ -411,7 +410,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
                 rule.other_blocked = isChecked;
-                updateRule(rule, true, listAll);
+                updateRule(context, rule, true, listAll);
             }
         });
 
@@ -491,7 +490,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
                 rule.apply = isChecked;
-                updateRule(rule, true, listAll);
+                updateRule(context, rule, true, listAll);
             }
         });
 
@@ -510,7 +509,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
             @Override
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                 rule.screen_wifi = isChecked;
-                updateRule(rule, true, listAll);
+                updateRule(context, rule, true, listAll);
             }
         });
 
@@ -529,7 +528,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
             @Override
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                 rule.screen_other = isChecked;
-                updateRule(rule, true, listAll);
+                updateRule(context, rule, true, listAll);
             }
         });
 
@@ -542,7 +541,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
             @TargetApi(Build.VERSION_CODES.M)
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                 rule.roaming = isChecked;
-                updateRule(rule, true, listAll);
+                updateRule(context, rule, true, listAll);
             }
         });
 
@@ -561,7 +560,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
             @TargetApi(Build.VERSION_CODES.M)
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                 rule.lockdown = isChecked;
-                updateRule(rule, true, listAll);
+                updateRule(context, rule, true, listAll);
             }
         });
 
@@ -682,7 +681,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
                     long time = cursor.getLong(cursor.getColumnIndex("time"));
                     int block = cursor.getInt(cursor.getColumnIndex("block"));
 
-                    PopupMenu popup = new PopupMenu(context, context.findViewById(R.id.vwPopupAnchor));
+                    PopupMenu popup = new PopupMenu(context, anchor);
                     popup.inflate(R.menu.access);
 
                     popup.getMenu().findItem(R.id.menu_host).setTitle(
@@ -704,8 +703,8 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
                     }
                     popup.getMenu().findItem(R.id.menu_host).setEnabled(multiple);
 
-                    markPro(popup.getMenu().findItem(R.id.menu_allow), ActivityPro.SKU_FILTER);
-                    markPro(popup.getMenu().findItem(R.id.menu_block), ActivityPro.SKU_FILTER);
+                    markPro(context, popup.getMenu().findItem(R.id.menu_allow), ActivityPro.SKU_FILTER);
+                    markPro(context, popup.getMenu().findItem(R.id.menu_block), ActivityPro.SKU_FILTER);
 
                     // Whois
                     final Intent lookupIP = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.tcpiputils.com/whois-lookup/" + daddr));
@@ -763,6 +762,12 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
                                     ServiceSinkhole.reload("reset host", context, false);
                                     result = true;
                                     break;
+
+                                case R.id.menu_copy:
+                                    ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+                                    ClipData clip = ClipData.newPlainText("netguard", daddr);
+                                    clipboard.setPrimaryClip(clip);
+                                    return true;
                             }
 
                             if (menu == R.id.menu_allow || menu == R.id.menu_block || menu == R.id.menu_reset)
@@ -823,7 +828,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean isChecked) {
                 rule.notify = isChecked;
-                updateRule(rule, true, listAll);
+                updateRule(context, rule, true, listAll);
             }
         });
     }
@@ -832,8 +837,8 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
     public void onViewRecycled(ViewHolder holder) {
         super.onViewRecycled(holder);
 
-        if (holder.iconLoader != null)
-            holder.iconLoader.cancel();
+        //Context context = holder.itemView.getContext();
+        //GlideApp.with(context).clear(holder.ivIcon);
 
         CursorAdapter adapter = (CursorAdapter) holder.lvAccess.getAdapter();
         if (adapter != null) {
@@ -843,7 +848,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
         }
     }
 
-    private void markPro(MenuItem menu, String sku) {
+    private void markPro(Context context, MenuItem menu, String sku) {
         if (sku == null || !IAB.isPurchased(sku, context)) {
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
             boolean dark = prefs.getBoolean("dark_theme", false);
@@ -853,7 +858,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
         }
     }
 
-    private void updateRule(Rule rule, boolean root, List<Rule> listAll) {
+    private void updateRule(Context context, Rule rule, boolean root, List<Rule> listAll) {
         SharedPreferences wifi = context.getSharedPreferences("wifi", Context.MODE_PRIVATE);
         SharedPreferences other = context.getSharedPreferences("other", Context.MODE_PRIVATE);
         SharedPreferences apply = context.getSharedPreferences("apply", Context.MODE_PRIVATE);
@@ -927,7 +932,7 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
         for (Rule modified : listModified)
             listSearch.remove(modified);
         for (Rule modified : listModified)
-            updateRule(modified, false, listSearch);
+            updateRule(context, modified, false, listSearch);
 
         if (root) {
             notifyDataSetChanged();
@@ -994,57 +999,5 @@ public class AdapterRule extends RecyclerView.Adapter<AdapterRule.ViewHolder> im
     @Override
     public int getItemCount() {
         return listFiltered.size();
-    }
-
-    private class IconLoader implements Runnable {
-        private ViewHolder holder;
-        private Rule rule;
-        private boolean cancelled = false;
-
-        public IconLoader(ViewHolder holder, Rule rule) {
-            this.holder = holder;
-            this.rule = rule;
-            holder.ivIcon.setHasTransientState(true);
-        }
-
-        public void cancel() {
-            if (!cancelled)
-                Log.i(TAG, "Cancelling icon loader");
-            cancelled = true;
-        }
-
-        @Override
-        public void run() {
-            try {
-                if (cancelled)
-                    throw new InterruptedException();
-
-                Drawable drawable = context.getPackageManager().getApplicationIcon(rule.packageName);
-                final Drawable scaledDrawable;
-                if (drawable instanceof BitmapDrawable) {
-                    Bitmap original = ((BitmapDrawable) drawable).getBitmap();
-                    Bitmap scaled = Bitmap.createScaledBitmap(original, iconSize, iconSize, false);
-                    scaledDrawable = new BitmapDrawable(context.getResources(), scaled);
-                } else
-                    scaledDrawable = drawable;
-
-                new Handler(context.getMainLooper()).post(new Runnable() {
-                    @Override
-                    public void run() {
-                        holder.ivIcon.setImageDrawable(scaledDrawable);
-                        holder.ivIcon.setHasTransientState(false);
-                    }
-                });
-            } catch (Throwable ex) {
-                Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex));
-                new Handler(context.getMainLooper()).post(new Runnable() {
-                    @Override
-                    public void run() {
-                        holder.ivIcon.setImageDrawable(null);
-                        holder.ivIcon.setHasTransientState(false);
-                    }
-                });
-            }
-        }
     }
 }

@@ -16,7 +16,7 @@ package eu.faircode.netguard;
     You should have received a copy of the GNU General Public License
     along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2015-2017 by Marcel Bokhorst (M66B)
+    Copyright 2015-2018 by Marcel Bokhorst (M66B)
 */
 
 import android.content.BroadcastReceiver;
@@ -283,9 +283,11 @@ public class ActivityMain extends AppCompatActivity implements SharedPreferences
 
         // Application list
         RecyclerView rvApplication = findViewById(R.id.rvApplication);
-        rvApplication.setHasFixedSize(true);
-        rvApplication.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new AdapterRule(this);
+        rvApplication.setHasFixedSize(false);
+        LinearLayoutManager llm = new LinearLayoutManager(this);
+        llm.setAutoMeasureEnabled(true);
+        rvApplication.setLayoutManager(llm);
+        adapter = new AdapterRule(this, findViewById(R.id.vwPopupAnchor));
         rvApplication.setAdapter(adapter);
 
         // Swipe to refresh

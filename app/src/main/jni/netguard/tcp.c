@@ -14,7 +14,7 @@
     You should have received a copy of the GNU General Public License
     along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2015-2017 by Marcel Bokhorst (M66B)
+    Copyright 2015-2018 by Marcel Bokhorst (M66B)
 */
 
 #include "netguard.h"
@@ -167,8 +167,11 @@ int monitor_tcp_session(const struct arguments *args, struct ng_session *s, int 
 }
 
 uint32_t get_send_window(const struct tcp_session *cur) {
-    uint32_t behind = (compare_u32(cur->acked, cur->local_seq) <= 0
-                       ? cur->local_seq - cur->acked : cur->acked);
+    uint32_t behind;
+    if (cur->acked <= cur->local_seq)
+        behind = (cur->local_seq - cur->acked);
+    else
+        behind = (0x10000 + cur->local_seq - cur->acked);
     uint32_t window = (behind < cur->send_window ? cur->send_window - behind : 0);
     return window;
 }
@@ -181,7 +184,7 @@ int get_receive_buffer(const struct ng_session *cur) {
     // /proc/sys/net/core/wmem_default
     int sendbuf = 0;
     int sendbufsize = sizeof(sendbuf);
-    if (getsockopt(cur->socket, SOL_SOCKET, SO_SNDBUF, &sendbuf, &sendbufsize) < 0)
+    if (getsockopt(cur->socket, SOL_SOCKET, SO_SNDBUF, &sendbuf, (socklen_t *) &sendbufsize) < 0)
         log_android(ANDROID_LOG_WARN, "getsockopt SO_RCVBUF %d: %s", errno, strerror(errno));
 
     if (sendbuf == 0)
@@ -818,7 +821,7 @@ jboolean handle_tcp(const struct arguments *args,
 
             if (!tcphdr->syn)
                 cur->tcp.time = time(NULL);
-            cur->tcp.send_window = ntohs(tcphdr->window) << cur->tcp.send_scale;
+            cur->tcp.send_window = ((uint32_t) ntohs(tcphdr->window)) << cur->tcp.send_scale;
 
             // Do not change the order of the conditions
 
@@ -1022,6 +1025,11 @@ int open_tcp_socket(const struct arguments *args,
     // Protect
     if (protect_socket(args, sock) < 0)
         return -1;
+
+    int on = 1;
+    if (setsockopt(sock, SOL_TCP, TCP_NODELAY, &on, sizeof(on)) < 0)
+        log_android(ANDROID_LOG_ERROR, "setsockopt TCP_NODELAY error %d: %s",
+                    errno, strerror(errno));
 
     // Set non blocking
     int flags = fcntl(sock, F_GETFL, 0);

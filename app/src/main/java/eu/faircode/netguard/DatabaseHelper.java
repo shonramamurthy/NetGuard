@@ -16,7 +16,7 @@ package eu.faircode.netguard;
     You should have received a copy of the GNU General Public License
     along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2015-2017 by Marcel Bokhorst (M66B)
+    Copyright 2015-2018 by Marcel Bokhorst (M66B)
 */
 
 import android.content.ContentValues;
@@ -922,7 +922,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
             query += " LEFT JOIN dns AS d";
             query += "   ON d.qname = a.daddr";
             query += " WHERE a.block >= 0";
-            query += " AND d.time + d.ttl >= " + now;
+            query += " AND (d.time IS NULL OR d.time + d.ttl >= " + now + ")";
             if (dname != null)
                 query += " AND a.daddr = ?";
 
